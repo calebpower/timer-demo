@@ -1,8 +1,7 @@
 package com.calebpower.test.timer;
-import java.util.AbstractMap.SimpleEntry;
-import java.util.LinkedList;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map.Entry;
+import java.util.TreeMap;
 
 /**
  * An implementation of a timer.
@@ -11,26 +10,20 @@ import java.util.Map.Entry;
  */
 public class Timer implements Runnable {
   
-  private long delay = 0L;
   private Thread thread = null;
-  private TimerAction action = null;
-  private List<Entry<Long, String>> entries = null;
+  private TreeMap<Long, List<String>> entries = new TreeMap<>();
   
-  private Timer(TimerAction action, long delay) {
-    this.action = action;
-    this.delay = delay;
-    this.entries = new LinkedList<>();
+  private Timer() {
+    this.entries = new TreeMap<>();
   }
   
   /**
    * Instantiates the timer.
    * 
-   * @param action the action to be taken
-   * @param delay the delay in seconds
    * @return the new Timer object
    */
-  public static Timer build(TimerAction action, long delay) {
-    Timer timer = new Timer(action, delay * 1000);
+  public static Timer build() {
+    Timer timer = new Timer();
     timer.thread = new Thread(timer);
     timer.thread.setDaemon(true);
     timer.thread.start();
@@ -43,16 +36,15 @@ public class Timer implements Runnable {
   @Override public void run() {
     try {
       for(;;) {
-        Entry<Long, String> entry = null;
         synchronized(entries) {
-          while(entries.size() == 0) {
-            entries.wait();
+          while(entries.size() > 0 && entries.firstKey() < System.currentTimeMillis()) {
+            var entry = entries.remove(entries.firstKey());
+            for(var message : entry)
+              System.out.println(message);
           }
-          entry = entries.remove(0);
+          entries.notifyAll();
         }
-        while(entry.getKey() > System.currentTimeMillis())
-          Thread.sleep(500L);
-        action.onAction(entry.getValue());
+        Thread.sleep(500L);
       }
     } catch(InterruptedException e) { }
   }
@@ -68,10 +60,15 @@ public class Timer implements Runnable {
    * Queues a message to be dispatched later.
    * 
    * @param message the message
+   * @param delay the delay
    */
-  public void queue(String message) {
+  public void queue(String message, long delay) {
     synchronized(entries) {
-      entries.add(new SimpleEntry<>(System.currentTimeMillis() + delay, message));
+      long fireTime = System.currentTimeMillis() + delay * 1000;
+      if(!entries.containsKey(fireTime))
+        entries.put(fireTime, new ArrayList<>());
+      var entryList = entries.get(fireTime);
+      entryList.add(message);
       entries.notifyAll();
     }
     System.out.printf("QUEUED '%1$s' (wait %2$d seconds)\n", message, delay / 1000);
